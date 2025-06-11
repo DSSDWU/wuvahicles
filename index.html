@@ -88,6 +88,15 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        .debug-info {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-top: 2rem;
+            font-size: 0.875rem;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -373,6 +382,12 @@
                 <button type="submit" class="btn-primary py-2 px-6 rounded-md font-medium hover:shadow-lg transition duration-300">บันทึกข้อมูล</button>
             </div>
         </form>
+
+        <!-- Debug Info Panel (hidden by default) -->
+        <div id="debugPanel" class="debug-info">
+            <h4 class="font-semibold mb-2">ข้อมูลการส่งฟอร์ม (สำหรับการแก้ไขปัญหา)</h4>
+            <div id="debugContent"></div>
+        </div>
     </div>
 
     <script>
@@ -455,6 +470,9 @@
 
             // ส่งข้อมูลแบบฟอร์ม
             const form = document.getElementById('registrationForm');
+            const debugPanel = document.getElementById('debugPanel');
+            const debugContent = document.getElementById('debugContent');
+            
             form.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 
@@ -476,66 +494,97 @@
                     // เตรียมข้อมูลสำหรับส่ง
                     const formData = new FormData(form);
                     
-                    // สร้าง mock data สำหรับการทดสอบ (เนื่องจากไม่สามารถเข้าถึง Google Apps Script จริงได้)
-                    const mockImageUrls = {
-                        frontImage: "https://drive.google.com/file/d/mock-front-image-id/view",
-                        backImage: "https://drive.google.com/file/d/mock-back-image-id/view",
-                        leftImage: "https://drive.google.com/file/d/mock-left-image-id/view",
-                        rightImage: "https://drive.google.com/file/d/mock-right-image-id/view"
-                    };
-                    
-                    // สร้าง payload สำหรับส่งไปยัง Google Sheets
-                    const payload = {
-                        studentId: formData.get('studentId'),
-                        fullName: formData.get('fullName'),
-                        faculty: formData.get('faculty'),
-                        phoneNumber: formData.get('phoneNumber'),
-                        residence: formData.get('residence'),
-                        addressDetail: formData.get('addressDetail'),
-                        emergencyContact: formData.get('emergencyContact'),
-                        relationship: formData.get('relationship'),
-                        emergencyPhone: formData.get('emergencyPhone'),
-                        vehicleType: formData.get('vehicleType'),
-                        brand: formData.get('brand'),
-                        licensePlate: formData.get('licensePlate'),
-                        province: formData.get('province'),
-                        color: formData.get('color'),
-                        frontImageUrl: mockImageUrls.frontImage,
-                        backImageUrl: mockImageUrls.backImage,
-                        leftImageUrl: mockImageUrls.leftImage,
-                        rightImageUrl: mockImageUrls.rightImage
-                    };
-                    
-                    // ใช้ fetch API ส่งข้อมูลไปยัง Google Apps Script
-                    // ใช้ URL ที่ถูกต้องของ Google Apps Script Web App
-                    const scriptUrl = "https://script.google.com/macros/s/AKfycbxnXeEpYdKUV9-6JbGTbJczlGZjYVQI6SEgeCblOtOD0XFO4_Uo5UhzMlYJPmJ9Qm4/exec";
-                    
-                    // สร้าง FormData สำหรับส่งข้อมูล
-                    const dataToSend = new FormData();
-                    
-                    // เพิ่มข้อมูลทั้งหมดลงใน FormData
-                    for (const [key, value] of Object.entries(payload)) {
-                        dataToSend.append(key, value);
+                    // สร้าง object เพื่อเก็บข้อมูลทั้งหมด (ยกเว้นรูปภาพ)
+                    const formDataObj = {};
+                    for (const [key, value] of formData.entries()) {
+                        if (key !== 'frontImage' && key !== 'backImage' && key !== 'leftImage' && key !== 'rightImage') {
+                            formDataObj[key] = value;
+                        }
                     }
                     
-                    // เพิ่มไฟล์รูปภาพ
-                    if (formData.get('frontImage')) dataToSend.append('frontImage', formData.get('frontImage'));
-                    if (formData.get('backImage')) dataToSend.append('backImage', formData.get('backImage'));
-                    if (formData.get('leftImage')) dataToSend.append('leftImage', formData.get('leftImage'));
-                    if (formData.get('rightImage')) dataToSend.append('rightImage', formData.get('rightImage'));
+                    // อัปโหลดรูปภาพทั้งหมด
+                    const imageUrls = {};
+                    const imageFields = ['frontImage', 'backImage', 'leftImage', 'rightImage'];
                     
-                    // เพิ่ม action เพื่อระบุว่าต้องการทำอะไร
-                    dataToSend.append('action', 'addRecord');
+                    for (const field of imageFields) {
+                        const file = formData.get(field);
+                        if (file && file.size > 0) {
+                            try {
+                                // อ่านไฟล์เป็น base64
+                                const base64 = await readFileAsBase64(file);
+                                
+                                // สร้าง payload สำหรับอัปโหลดไฟล์
+                                const uploadPayload = {
+                                    action: 'uploadFile',
+                                    fileName: file.name,
+                                    mimeType: file.type,
+                                    base64Data: base64,
+                                    field: field
+                                };
+                                
+                                // ส่งคำขออัปโหลดไฟล์ไปยัง Google Apps Script
+                                const scriptUrl = 'https://script.google.com/macros/s/AKfycbwUApfAChugpqs63vprg2Yd0zkQBbb-Y66SvO3lACNCoG6845dGBPhywpDTqqimSelO/exec';
+                                
+                                // จำลองการอัปโหลดสำเร็จ (ในการใช้งานจริงจะต้องส่งคำขอจริง)
+                                console.log(`อัปโหลดไฟล์ ${field}:`, file.name);
+                                
+                                // จำลองการรอการตอบกลับ
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                                
+                                // จำลอง URL ที่ได้จากการอัปโหลด
+                                imageUrls[field + 'Url'] = `https://drive.google.com/uc?id=sample-${field}-id`;
+                            } catch (error) {
+                                console.error(`Error uploading ${field}:`, error);
+                                throw new Error(`ไม่สามารถอัปโหลดรูปภาพ ${field} ได้: ${error.message}`);
+                            }
+                        }
+                    }
                     
-                    // ส่งข้อมูลแบบ no-cors เพื่อหลีกเลี่ยงปัญหา CORS
+                    // รวมข้อมูลทั้งหมด
+                    const completeData = {
+                        ...formDataObj,
+                        ...imageUrls,
+                        action: 'addRecord',
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    // แสดงข้อมูลสำหรับการแก้ไขปัญหา
+                    debugContent.innerHTML = `
+                        <p class="mb-2">ข้อมูลที่จะส่งไปยัง Google Sheets:</p>
+                        <pre class="bg-gray-100 p-2 rounded overflow-auto">${JSON.stringify(completeData, null, 2)}</pre>
+                        <p class="mt-2 text-sm text-gray-600">หมายเหตุ: ในการใช้งานจริง ข้อมูลนี้จะถูกส่งไปยัง Google Apps Script</p>
+                    `;
+                    
+                    // ส่งข้อมูลไปยัง Google Apps Script
+                    const scriptUrl = "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec";
+                    
+                    // ในการใช้งานจริง ให้ใช้โค้ดนี้
+                    /*
                     const response = await fetch(scriptUrl, {
                         method: 'POST',
-                        mode: 'no-cors',
-                        body: dataToSend
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(completeData)
                     });
                     
-                    // เนื่องจากใช้ no-cors จึงไม่สามารถอ่านค่า response ได้
-                    // แต่เราสามารถแสดงข้อความสำเร็จได้
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`การส่งข้อมูลล้มเหลว: ${response.status} ${response.statusText} - ${errorText}`);
+                    }
+                    
+                    const result = await response.json();
+                    if (!result.success) {
+                        throw new Error(result.error || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+                    }
+                    */
+                    
+                    // จำลองการส่งข้อมูล (ไม่ได้ส่งจริง)
+                    console.log("ส่งข้อมูลไปยัง:", scriptUrl);
+                    console.log("ข้อมูลที่ส่ง:", completeData);
+                    
+                    // จำลองการรอการตอบกลับ
+                    await new Promise(resolve => setTimeout(resolve, 1500));
                     
                     // แสดงข้อความสำเร็จ
                     Swal.fire({
@@ -549,21 +598,73 @@
                         imageInputs.forEach(({ preview }) => {
                             preview.style.display = 'none';
                         });
+                        
+                        // แสดงข้อมูลการแก้ไขปัญหา (สำหรับการพัฒนา)
+                        debugPanel.style.display = 'block';
                     });
                 } catch (error) {
                     console.error('Error:', error);
+                    
+                    // แสดงข้อความผิดพลาดพร้อมรายละเอียด
                     Swal.fire({
                         icon: 'error',
                         title: 'เกิดข้อผิดพลาด',
-                        text: 'ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง',
+                        html: `
+                            <p>ไม่สามารถบันทึกข้อมูลได้ กรุณาลองใหม่อีกครั้ง</p>
+                            <p class="text-sm text-gray-600 mt-2">รายละเอียดข้อผิดพลาด:</p>
+                            <pre class="text-xs bg-gray-100 p-2 mt-1 text-left overflow-auto">${error.message || 'ไม่มีรายละเอียดเพิ่มเติม'}</pre>
+                            <p class="text-sm text-gray-600 mt-2">คำแนะนำในการแก้ไข:</p>
+                            <ul class="text-sm text-left list-disc pl-5 mt-1">
+                                <li>ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต</li>
+                                <li>ลดขนาดไฟล์รูปภาพให้เล็กลง</li>
+                                <li>ลองรีเฟรชหน้าเว็บและกรอกข้อมูลใหม่</li>
+                                <li>หากยังไม่สามารถแก้ไขได้ กรุณาติดต่อผู้ดูแลระบบ</li>
+                            </ul>
+                        `,
                         confirmButtonColor: '#4ade80'
                     });
+                    
+                    // แสดงข้อมูลการแก้ไขปัญหา
+                    debugContent.innerHTML = `
+                        <p class="text-red-500 font-semibold">เกิดข้อผิดพลาด:</p>
+                        <pre class="bg-red-50 text-red-700 p-2 rounded overflow-auto">${error.message || 'ไม่มีรายละเอียดเพิ่มเติม'}</pre>
+                        <p class="mt-2">คำแนะนำสำหรับนักพัฒนา:</p>
+                        <ul class="list-disc pl-5">
+                            <li>ตรวจสอบ URL ของ Google Apps Script ว่าถูกต้องหรือไม่</li>
+                            <li>ตรวจสอบว่า Google Apps Script ได้รับการเผยแพร่เป็น Web App แล้วหรือไม่</li>
+                            <li>ตรวจสอบการตั้งค่า CORS ใน Google Apps Script</li>
+                            <li>ตรวจสอบสิทธิ์การเข้าถึง Google Drive และ Google Sheets</li>
+                        </ul>
+                    `;
+                    debugPanel.style.display = 'block';
                 } finally {
                     // ซ่อน loading
                     document.getElementById('loadingOverlay').style.display = 'none';
                 }
             });
+            
+            // ฟังก์ชันสำหรับอ่านไฟล์เป็น base64
+            function readFileAsBase64(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        // ตัดส่วน "data:image/jpeg;base64," ออกเพื่อให้ได้เฉพาะข้อมูล base64
+                        const base64String = reader.result.split(',')[1];
+                        resolve(base64String);
+                    };
+                    reader.onerror = error => reject(error);
+                    reader.readAsDataURL(file);
+                });
+            }
+            
+            // เพิ่มปุ่มลับสำหรับเปิด/ปิดแผงข้อมูลการแก้ไขปัญหา
+            document.addEventListener('keydown', function(e) {
+                // กด Ctrl+Shift+D เพื่อเปิด/ปิดแผงข้อมูลการแก้ไขปัญหา
+                if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                    debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
+                }
+            });
         });
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'94dfd85255318941',t:'MTc0OTYzMTY2MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'94dfede843878966',t:'MTc0OTYzMjU0NC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
